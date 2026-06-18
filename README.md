@@ -31,7 +31,7 @@ Nexus does not wait for web elements to render just to delete them with slow Jav
 ### 3. 💤 Smart Tab Hibernation
 An automated `QTimer` continuously evaluates background activity. Any tab left unused for more than 5 minutes gets its heavy Chromium process **completely terminated (`deleteLater()`)** from the system RAM, leaving a lightweight cached placeholder. Click back, and it restores exactly where you left off instantly.
 
-### 4. 🎛️ The 3-Bar Power Menu (Brave Inspired)
+### 4. 🎛️ The 3-Bar Power Menu
 A clean, minimal Hamburger menu that controls everything you need (and nothing you don't):
 *   **Hardware Acceleration & DNS Prefetching** toggles at startup.
 *   **On-the-fly Advanced Zooming** (`setZoomFactor`).
@@ -40,10 +40,4 @@ A clean, minimal Hamburger menu that controls everything you need (and nothing y
 
 ---
 
-## 🛠️ Quick Start (Run in Cloud or Locally)
 
-### ☁️ Run Online 100% Free (No installation required)
-1. Create a **GitHub Codespace** or a **Replit** container with a Virtual Desktop (VNC/X11) environment.
-2. Open the terminal and initialize the dependencies:
-```bash
-pip install PyQt6 PyQt6-WebEngine requests
