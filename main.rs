@@ -19,7 +19,7 @@ use std::time::Instant;
 use tao::{event::{Event, StartCause}, event_loop::{ControlFlow, EventLoopBuilder}, window::WindowBuilder};
 use wry::WebViewBuilder;
 
-mod state {
+pub mod state {
     use super::*;
     #[derive(Clone, Debug, PartialEq)] pub enum Theme { Dark, Light }
     #[derive(Clone, Debug, PartialEq)] pub enum Lang { EN, VI }
@@ -96,7 +96,6 @@ mod dl {
         if len == 0 { return; }
         let chunk = len / 64;
         
-        // FIX: Explicitly cast index to usize to prevent type mismatch in tuple (usize, Vec<u8>)
         let handles: Vec<_> = (0usize..64).map(|i| {
             let c = c.clone(); let u = url.clone();
             let start = i as u64 * chunk;
@@ -251,7 +250,7 @@ fn main() {
                 "trns" => if let Some(t) = d.as_str() { let tc = t.to_string(); let pc = ipx.clone(); tokio::spawn(async move { let r = trans::run(tc).await; let e = r.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$"); pc.send_event(Ev::Js(format!("atr(`{}`)", e))).ok(); }); },
                 "shld" => if let (Some(s), Some(v)) = (d["s"].as_str(), d["v"].as_bool()) { if let Ok(mut g) = ist.write() { match s { "ad" => g.cfg.ad = v, "trk" => g.cfg.trk = v, "ck" => g.cfg.cook = v, _ => {} } } },
                 "inc" => { if let Ok(mut g) = ist.write() { g.blocked += 1; ipx.send_event(Ev::Js(format!("uc({})", g.blocked))).ok(); } },
-                "about" => { ipx.send_event(Ev::Js("document.body.insertAdjacentHTML('beforeend',`<div style='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg);border:2px solid var(--c);padding:40px;z-index:9999;box-shadow:0 0 30px var(--c);color:var(--t);font-family:monospace'><h1 style='color:var(--c)'>NEXUS</h1><p style='color:var(--p)'>Premium Rust</p><button class='b' onclick='this.parentNode.remove()'>CLOSE</button></div>`);al(CL);".into())).ok(); },
+                "about" => { ipx.send_event(Ev::Js("document.body.insertAdjacentHTML('beforeend',`<div style='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg);border:2px solid var(--c);padding:40px;z-index:9999;box-shadow:0 0 30px var(--c);color:var(--t);font-family:monospace'><h1 style='color:var(--c)'>NEXUS</h1><p style='color:var(--p)'>Premium Rust</p><button class='b' onclick='this.parentNode.remove()'>CLOSE</button></div>`);al(window.CL);".into())).ok(); },
                 _ => {}
             }
         }
