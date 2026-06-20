@@ -37,9 +37,14 @@
 
 ## 🏗️ Project Architecture
 
-To maximize testability, compilation speed, and audit efficiency, the entire codebase utilizes a rigid **Single-File Architecture**:
+To maximize testability, compilation speed, and audit efficiency, the entire codebase utilizes a rigid **Single-File Architecture**
 
-```text
-├── Cargo.toml        # Crate declarations (tokio, reqwest, webview, etc.)
-└── src
-    └── main.rs       # Single source of truth containing all inline modules & logic
+## ⚡ Powered By
+
+The **Nexus Browser** project has been researched, developed, and optimized with the invaluable support of the following cutting-edge technologies and AI models:
+
+*   **Google Gemini** – Assisted in system architecture design, overall optimization, and environment troubleshooting.
+*   **Qwen Studio** – Acted as a streamlined coding assistant, helping write and compress highly efficient Rust source code and Cyberpunk HTML/JS interfaces.
+*   **Replit** – Provided the cloud IDE platform where the initial codebases and early prototypes of the project were hosted and tested.
+
+---
