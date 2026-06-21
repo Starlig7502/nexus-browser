@@ -1,17 +1,6 @@
 // ============================================================================
-// NEXUS BROWSER - ELITE RUST EDITION (OPTIMIZED & COMPRESSED)
+// NEXUS BROWSER - ELITE RUST EDITION (4GB DDR3 LOW-RAM OPTIMIZED)
 // Single-file architecture: src/main.rs
-// ============================================================================
-// REQUIRED Cargo.toml dependencies:
-// [dependencies]
-// tao = "0.30"
-// wry = "0.45"
-// tokio = { version = "1", features = ["full"] }
-// reqwest = { version = "0.12", features = ["socks", "json", "stream"] }
-// serde = { version = "1", features = ["derive"] }
-// serde_json = "1"
-// url = "2"
-// rand = "0.8"
 // ============================================================================
 
 use std::sync::{Arc, RwLock, Mutex};
@@ -22,56 +11,91 @@ use wry::WebViewBuilder;
 pub mod state {
     use super::*;
     #[derive(Clone, Debug, PartialEq)] pub enum Theme { Dark, Light }
-    #[derive(Clone, Debug, PartialEq)] pub enum Lang { EN, VI }
-    #[derive(Clone, Debug)] pub struct Chat { pub role: String, pub content: String }
-    #[derive(Clone, Debug)] pub struct Tab { pub id: String, pub url: String, pub last_active: Instant }
     #[derive(Clone, Debug, Default)] pub struct Cfg {
         pub proxy: bool, pub proxy_url: String, pub tor: bool, pub dev: bool,
-        pub ad: bool, pub trk: bool, pub cook: bool,
+        pub ad: bool, pub trk: bool, pub sinkhole: bool,
     }
     #[derive(Clone, Debug)]
     pub struct State {
-        pub ai: Vec<Chat>, pub tabs: Vec<Tab>, pub hist: Vec<String>, pub cfg: Cfg,
-        pub theme: Theme, pub lang: Lang, pub blocked: u64,
+        pub hist: Vec<String>, pub cfg: Cfg, pub theme: Theme, pub blocked: u64,
+        pub last_active: Instant,
     }
     impl State {
         pub fn new() -> Self { Self {
-            ai: vec![], tabs: vec![], hist: vec![],
-            cfg: Cfg { proxy_url: "socks5://127.0.0.1:1080".into(), ad: true, trk: true, cook: true, ..Default::default() },
-            theme: Theme::Dark, lang: Lang::EN, blocked: 0,
+            hist: vec![], cfg: Cfg { proxy_url: "socks5://127.0.0.1:1080".into(), ad: true, trk: true, sinkhole: true, ..Default::default() },
+            theme: Theme::Dark, blocked: 0, last_active: Instant::now(),
         }}
-        pub fn add_chat(&mut self, c: Chat) { self.ai.push(c); if self.ai.len() > 40 { self.ai.remove(0); } }
     }
 }
 
 mod blocker {
     use super::state::Cfg;
-    const ADS: &[&str] = &["doubleclick", "adsense", "adsystem", "adservice", "adnxs", "amazon-adsystem", "facebook.com/tr"];
-    const TRK: &[&str] = &["google-analytics", "mixpanel", "hotjar", "scorecardresearch", "quantserve", "segment.io"];
-    const COOK: &[&str] = &["addthis", "sharethis", "disqus", "taboola", "outbrain", "demdex"];
     pub fn check(url: &str, c: &Cfg) -> bool {
-        (c.ad && ADS.iter().any(|d| url.contains(d))) ||
-        (c.trk && TRK.iter().any(|d| url.contains(d))) ||
-        (c.cook && COOK.iter().any(|d| url.contains(d)))
+        (c.ad && (url.contains("adsystem") || url.contains("adnxs") || url.contains("taboola"))) ||
+        (c.trk && (url.contains("analytics") || url.contains("segment.io")))
+    }
+}
+
+mod sinkhole {
+    pub fn check(url: &str) -> bool {
+        url.contains("doubleclick") || url.contains("adsense") || url.contains("mixpanel") || 
+        url.contains("hotjar") || url.contains("facebook.com/tr")
     }
 }
 
 mod net {
     use super::state::Cfg;
     pub fn client(c: &Cfg) -> reqwest::Client {
-        let mut b = reqwest::Client::builder().user_agent("Nexus/1.0");
+        let mut b = reqwest::Client::builder().user_agent("Nexus/1.0").pool_idle_timeout(None);
         if c.tor { if let Ok(p) = reqwest::Proxy::all("socks5h://127.0.0.1:9050") { b = b.proxy(p); } }
         else if c.proxy { if let Ok(p) = reqwest::Proxy::all(&c.proxy_url) { b = b.proxy(p); } }
         b.build().unwrap_or_else(|_| reqwest::Client::new())
     }
 }
 
-mod vault {
-    use rand::Rng;
-    pub fn gen(len: usize) -> String {
-        const C: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
-        let mut r = rand::thread_rng();
-        (0..len).map(|_| C[r.gen_range(0..C.len())] as char).collect()
+mod dl {
+    use super::{net, state::State};
+    use std::sync::Arc;
+    use tokio::{sync::Semaphore, task, io::{AsyncWriteExt, AsyncSeekExt, SeekFrom}};
+    use futures_util::StreamExt;
+
+    pub async fn turbo(url: String, st: Arc<RwLock<State>>) {
+        let cfg = st.read().map(|g| g.cfg.clone()).unwrap_or_default();
+        let c = net::client(&cfg);
+        let len = c.head(&url).send().await.ok().and_then(|r| r.content_length()).unwrap_or(0);
+        if len == 0 { return; }
+        
+        let sem = Arc::new(Semaphore::new(32));
+        let chunk = len / 32;
+        let f_name = url.split('/').last().unwrap_or("nxdl.bin").to_string();
+        
+        // FIX: Use OpenOptions for safe async file creation without blocking set_len issues
+        let file = match tokio::fs::OpenOptions::new()
+            .write(true).create(true).truncate(true).open(&f_name).await {
+            Ok(f) => Arc::new(tokio::sync::Mutex::new(f)),
+            Err(_) => return,
+        };
+
+        let mut set = task::JoinSet::new();
+        for i in 0usize..32 {
+            let (c, u, p, fl) = (c.clone(), url.clone(), sem.clone(), file.clone());
+            let s = i as u64 * chunk;
+            let e = if i == 31 { len - 1 } else { s + chunk - 1 };
+            set.spawn(async move {
+                let _p = p.acquire().await;
+                if let Ok(r) = c.get(&u).header("Range", format!("bytes={}-{}", s, e)).send().await {
+                    let mut st = r.bytes_stream();
+                    let mut off = s;
+                    while let Some(Ok(b)) = st.next().await {
+                        let mut g = fl.lock().await;
+                        let _ = g.seek(SeekFrom::Start(off)).await;
+                        let _ = g.write_all(&b).await;
+                        off += b.len() as u64;
+                    }
+                }
+            });
+        }
+        while set.join_next().await.is_some() {}
     }
 }
 
@@ -81,49 +105,6 @@ mod search {
         if t.starts_with("http") { t.into() }
         else if t.contains('.') && !t.contains(' ') { format!("https://{}", t) }
         else { format!("https://www.google.com/search?q={}", url::form_urlencoded::byte_serialize(t.as_bytes()).collect::<String>()) }
-    }
-}
-
-mod dl {
-    use super::{net, state::State};
-    use std::sync::{Arc, RwLock};
-    use tokio::task;
-
-    pub async fn turbo(url: String, st: Arc<RwLock<State>>) {
-        let cfg = if let Ok(g) = st.read() { g.cfg.clone() } else { return; };
-        let c = net::client(&cfg);
-        let len = c.head(&url).send().await.ok().and_then(|r| r.content_length()).unwrap_or(0);
-        if len == 0 { return; }
-        let chunk = len / 64;
-        
-        let handles: Vec<_> = (0usize..64).map(|i| {
-            let c = c.clone(); let u = url.clone();
-            let start = i as u64 * chunk;
-            let end = if i == 63 { len - 1 } else { start + chunk - 1 };
-            task::spawn(async move {
-                if let Ok(r) = c.get(&u).header("Range", format!("bytes={}-{}", start, end)).send().await {
-                    if let Ok(b) = r.bytes().await { return (i, b.to_vec()); }
-                }
-                (i, vec![])
-            })
-        }).collect();
-        
-        let mut chunks: Vec<(usize, Vec<u8>)> = vec![];
-        for h in handles { if let Ok(res) = h.await { chunks.push(res); } }
-        chunks.sort_by_key(|(i, _)| *i);
-        let data: Vec<u8> = chunks.into_iter().flat_map(|(_, b)| b).collect();
-        if let Some(f) = url.split('/').last() { let _ = tokio::fs::write(f, data).await; }
-    }
-}
-
-mod trans {
-    pub async fn run(t: String) -> String {
-        let mut r = t;
-        for (e, v) in [("Welcome", "Chào mừng"), ("Search", "Tìm kiếm"), ("Download", "Tải"), ("NEXUS", "NEXUS")] {
-            r = r.replace(e, v);
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        r
     }
 }
 
@@ -156,41 +137,29 @@ input:checked+.sl{background:var(--c);box-shadow:0 0 10px var(--c)}input:checked
 </style></head><body>
 <div id="sh"><div id="tb">
 <button class="b" onclick="sr('back')">⟵</button><button class="b" onclick="sr('fwd')">⟶</button><button class="b" onclick="sr('ref')">⟳</button>
-<input type="text" id="u" data-i18n="search" placeholder="Search..." onkeydown="if(event.key==='Enter')sr('nav',this.value)">
-<button class="b p" onclick="sr('dl',v('u'))" data-i18n="turbo">⬇ TURBO</button>
-<button class="b" onclick="tp()" data-i18n="trans">🌐 VI</button>
-<button class="b" onclick="td()" data-i18n="dev">⚙ DEV</button>
-<button class="b" onclick="sr('about')" data-i18n="about">ⓘ</button>
-<button class="b" onclick="sr('theme')">🌓</button><button class="b" onclick="sr('lang')">🌐</button>
-</div><div id="ca"><div id="st"><h1 data-i18n="title">NEXUS</h1><div class="s" data-i18n="sub">PREMIUM RUST // ZERO-TRUST</div><input type="text" id="ss" data-i18n="ssearch" placeholder="Query..." onkeydown="if(event.key==='Enter'){v('u',this.value);sr('nav',this.value)}"></div></div></div>
-<div id="pp"><h3 class="pt" data-i18n="priv">🛡 PRIVACY</h3>
-<div class="stg"><label>Ads</label><label class="sw"><input type="checkbox" id="tad" checked onchange="ts('ad',this.checked)"><span class="sl"></span></label></div>
-<div class="stg"><label>Trackers</label><label class="sw"><input type="checkbox" id="ttrk" checked onchange="ts('trk',this.checked)"><span class="sl"></span></label></div>
-<div class="stg"><label>Cookies</label><label class="sw"><input type="checkbox" id="tck" checked onchange="ts('ck',this.checked)"><span class="sl"></span></label></div>
+<input type="text" id="u" placeholder="Search..." onkeydown="if(event.key==='Enter')sr('nav',this.value)">
+<button class="b p" onclick="sr('dl',v('u'))">⬇ TURBO</button>
+<button class="b" onclick="td()">⚙ DEV</button>
+<button class="b" onclick="sr('theme')">🌓</button>
+</div><div id="ca"><div id="st"><h1>NEXUS</h1><div class="s">ELITE RUST // 4GB OPTIMIZED</div><input type="text" id="ss" placeholder="Query..." onkeydown="if(event.key==='Enter'){v('u',this.value);sr('nav',this.value)}"></div></div></div>
+<div id="pp"><h3 class="pt">🛡 SHIELD</h3>
+<div class="stg"><label>Ads</label><label class="sw"><input type="checkbox" checked onchange="ts('ad',this.checked)"><span class="sl"></span></label></div>
+<div class="stg"><label>Trackers</label><label class="sw"><input type="checkbox" checked onchange="ts('trk',this.checked)"><span class="sl"></span></label></div>
+<div class="stg"><label>Sinkhole</label><label class="sw"><input type="checkbox" checked onchange="ts('sink',this.checked)"><span class="sl"></span></label></div>
 <div id="bc"><div style="font-size:12px;text-transform:uppercase;opacity:.8">Blocked</div><span id="ct">0</span></div></div>
-<div id="dp"><h2 style="color:var(--p);border-bottom:1px solid var(--p)">DEV CONSOLE</h2><div id="dl"></div><input type="text" id="jc" placeholder="JS..." onkeydown="if(event.key==='Enter'){eval(this.value);this.value=''}" style="width:100%;margin-top:10px;background:var(--in);border:1px solid var(--c);color:var(--t);padding:5px"></div>
+<div id="dp"><h2 style="color:var(--p);border-bottom:1px solid var(--p)">DEV</h2><div id="dl"></div></div>
 <script>
-window.CL='en';
-const L={en:{search:"Search...",ssearch:"Query...",turbo:"⬇ TURBO",about:"ⓘ",dev:"⚙ DEV",title:"NEXUS",sub:"PREMIUM RUST // ZERO-TRUST",trans:"🌐 VI",priv:"🛡 PRIVACY"},vi:{search:"Tìm...",ssearch:"Truy vấn...",turbo:"⬇ TẢI",about:"ⓘ",dev:"⚙ DEV",title:"NEXUS",sub:"RUST CAO CẤP // KHÔNG TIN CẬY",trans:"🌐 EN",priv:"🛡 BẢO MẬT"}};
-window.BL={ad:["doubleclick","adsense","adsystem","adservice","adnxs","amazon-adsystem","facebook.com/tr"],trk:["google-analytics","mixpanel","hotjar","scorecardresearch","quantserve","segment.io"],ck:["addthis","sharethis","disqus","taboola","outbrain","demdex"]};
-window.S={ad:1,trk:1,ck:1};
-function ib(u){if(!u)return 0;try{if(S.ad&&BL.ad.some(d=>u.includes(d)))return 1;if(S.trk&&BL.trk.some(d=>u.includes(d)))return 1;if(S.ck&&BL.ck.some(d=>u.includes(d)))return 1}catch(e){}return 0}
-const of=window.fetch;window.fetch=function(i,n){let u='';try{u=typeof i==='string'?i:(i instanceof Request?i.url:String(i))}catch(e){}if(ib(u)){sr('inc','fetch');return Promise.reject(new Error('Blocked'))}return of.apply(this,arguments)};
-const ox=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send;
-XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return ox.apply(this,arguments)};
-XMLHttpRequest.prototype.send=function(){if(ib(this.__u)){sr('inc','xhr');this.abort();return}return os.apply(this,arguments)};
-new MutationObserver(m=>m.forEach(x=>x.addedNodes.forEach(n=>{if(n.nodeType===1&&['SCRIPT','IMG','IFRAME','LINK'].includes(n.tagName)){if((n.src&&ib(n.src))||(n.href&&ib(n.href))){n.remove();sr('inc','dom')}}}))).observe(document.documentElement,{childList:1,subtree:1});
+window.S={ad:1,trk:1,sink:1};
+function ib(u){if(!u)return 0;try{if(S.sink&&/doubleclick|adsense|mixpanel|hotjar|facebook\.com\/tr/.test(u))return 1;if(S.ad&&/adsystem|adnxs|taboola/.test(u))return 1;if(S.trk&&/analytics|segment\.io/.test(u))return 1}catch(e){}return 0}
+const of=window.fetch;window.fetch=function(i,n){let u='';try{u=typeof i==='string'?i:i.url}catch(e){}if(ib(u)){sr('inc');return Promise.reject(new Error('Blocked'))}return of.apply(this,arguments)};
 function ts(t,v){S[t]=v?1:0;sr('shld',{s:t,v:v})}
 function uc(c){let e=document.getElementById('ct');if(e){e.textContent=c;let p=document.getElementById('bc');p.style.boxShadow='0 0 25px var(--p)';setTimeout(()=>p.style.boxShadow='none',500)}}
-function sr(a,p){if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(JSON.stringify({a:a,p:p}));else if(window.ipc)window.ipc.postMessage(JSON.stringify({a:a,p:p}))}
-function td(){document.getElementById('dp').classList.toggle('o');sr('dev')}
-function lg(m,t){let l=document.getElementById('dl'),e=document.createElement('div');e.className='le '+(t||'info');e.textContent='['+new Date().toISOString().split('T')[1].split('.')[0]+'] '+m;l.prepend(e)}
-window.rp=function(h){document.getElementById('ca').innerHTML=h;document.getElementById('ca').addEventListener('click',function(e){let t=e.target;while(t&&t.tagName!=='A'){t=t.parentNode;if(!t)return}if(t&&t.tagName==='A'){e.preventDefault();let h=t.getAttribute('href');if(h&&!h.startsWith('#')&&!h.startsWith('javascript:')){let b=document.querySelector('base');let f=h;if(b)f=new URL(h,b.getAttribute('href')).href;v('u',f);sr('nav',f)}}},!0)};
+function sr(a,p){if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(JSON.stringify({a,p}));else if(window.ipc)window.ipc.postMessage(JSON.stringify({a,p}))}
+function td(){document.getElementById('dp').classList.toggle('o')}
+function lg(m,t){let l=document.getElementById('dl'),e=document.createElement('div');e.className='le '+(t||'info');e.textContent='['+new Date().toTimeString().split(' ')[0]+'] '+m;l.prepend(e)}
+window.rp=function(h){document.getElementById('ca').innerHTML=h;try{localStorage.clear();sessionStorage.clear()}catch(e){}};
 window.at=function(m){m==='light'?document.body.classList.add('lt'):document.body.classList.remove('lt')}
-window.al=function(l){window.CL=l;let t=L[l];if(!t)return;v('u',null,t.search);v('ss',null,t.ssearch);document.querySelectorAll('[data-i18n]').forEach(e=>{let k=e.getAttribute('data-i18n');if(t[k])e.textContent=t[k]})}
-function tp(){sr('trns',document.title+'|'+document.body.innerText.substring(0,500))}
-window.atr=function(t){let o=document.createElement('div');o.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--p);color:#fff;padding:15px 25px;z-index:99999;border-radius:5px;box-shadow:0 0 15px var(--p);font-weight:700';o.textContent='Dịch thành công!';document.body.appendChild(o);setTimeout(()=>o.remove(),3000);document.title='[VI] '+document.title}
-function v(id,val){let e=document.getElementById(id);if(val===null)return e.placeholder;if(val!==undefined)e.value=val;return e.value}
+function v(id,val){let e=document.getElementById(id);if(val!==undefined)e.value=val;return e.value}
 </script></body></html>"#.into()
 }
 
@@ -198,43 +167,61 @@ function v(id,val){let e=document.getElementById(id);if(val===null)return e.plac
 enum Ev { Js(String) }
 
 async fn fetch(url: String, st: Arc<RwLock<state::State>>, px: tao::event_loop::EventLoopProxy<Ev>) {
-    let cfg = if let Ok(g) = st.read() { g.cfg.clone() } else { return; };
-    if blocker::check(&url, &cfg) { px.send_event(Ev::Js(format!("lg('BLOCKED: {}','error')", url))).ok(); return; }
+    let cfg = st.read().map(|g| g.cfg.clone()).unwrap_or_default();
+    if blocker::check(&url, &cfg) || (cfg.sinkhole && sinkhole::check(&url)) { 
+        px.send_event(Ev::Js(format!("lg('SINKHOLE: {}','error')", url))).ok(); 
+        if let Ok(mut g) = st.write() { g.blocked += 1; }
+        px.send_event(Ev::Js(format!("uc({})", st.read().map(|g| g.blocked).unwrap_or(0)))).ok();
+        return; 
+    }
     
     let client = net::client(&cfg);
     if let Ok(r) = client.get(&url).send().await {
         if let Ok(h) = r.text().await {
             let base = format!("<base href=\"{}\">", url);
             let html = if h.contains("<head>") { h.replacen("<head>", &format!("<head>{}", base), 1) } else { format!("{}{}", base, h) };
-            let esc = html.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$");
-            px.send_event(Ev::Js(format!("rp(`{}`)", esc))).ok();
-            if let Ok(mut g) = st.write() { g.hist.push(url); }
+            if let Ok(esc) = serde_json::to_string(&html) {
+                let payload = format!("rp({})", esc);
+                px.send_event(Ev::Js(payload)).ok();
+                if let Ok(mut g) = st.write() { 
+                    g.hist.push(url); 
+                    g.last_active = Instant::now();
+                }
+            }
         }
     }
 }
 
 fn main() {
+    std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    
     let el = EventLoopBuilder::new().build();
-    let w = match WindowBuilder::new().with_title("NEXUS").build(&el) {
-        Ok(w) => w,
-        Err(_) => return,
+    let w = match WindowBuilder::new().with_title("NEXUS").with_inner_size(tao::dpi::LogicalSize::new(1024, 768)).build(&el) {
+        Ok(w) => w, Err(_) => return,
     };
     
     let st = Arc::new(RwLock::new(state::State::new()));
     let stc = st.clone();
+    let px = el.create_proxy();
+    let pxc = px.clone();
     
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            if let Ok(mut g) = stc.write() {
-                let now = Instant::now();
-                g.tabs.retain(|t| now.duration_since(t.last_active).as_secs() <= 300 || t.url.is_empty());
+            let idle = stc.read().map(|g| g.last_active.elapsed().as_secs() > 60).unwrap_or(false);
+            if idle {
+                pxc.send_event(Ev::Js("if(!document.getElementById('frozen')){document.getElementById('ca').innerHTML='<div id=frozen style=\\'position:fixed;inset:0;background:#000;color:#0ff;display:flex;align-items:center;justify-content:center;font-family:monospace;z-index:9999\\'>TAB FROZEN // RAM RECLAIMED</div>';lg('DOM EVICTED','info')}".into())).ok();
             }
         }
     });
 
-    let px = el.create_proxy();
-    let mut wb = WebViewBuilder::new(&w).with_html(html());
+    let mut wb = WebViewBuilder::new(&w)
+        .with_html(html())
+        .with_incognito(true)
+        .with_back_forward_navigation_gestures(false)
+        .with_zoom_hotkeys(false);
+        
     let ist = st.clone(); let ipx = px.clone();
     
     wb = wb.with_ipc_handler(move |req: wry::http::Request<String>| {
@@ -246,19 +233,15 @@ fn main() {
                 "dl" => if let Some(u) = d.as_str() { tokio::spawn(dl::turbo(u.into(), ist.clone())); },
                 "dev" => { if let Ok(mut g) = ist.write() { g.cfg.dev = !g.cfg.dev; } },
                 "theme" => { if let Ok(mut g) = ist.write() { g.theme = if g.theme == state::Theme::Dark { state::Theme::Light } else { state::Theme::Dark }; ipx.send_event(Ev::Js(format!("at('{}')", if g.theme == state::Theme::Light {"light"} else {"dark"}))).ok(); } },
-                "lang" => { if let Ok(mut g) = ist.write() { g.lang = if g.lang == state::Lang::EN { state::Lang::VI } else { state::Lang::EN }; ipx.send_event(Ev::Js(format!("al('{}')", if g.lang == state::Lang::VI {"vi"} else {"en"}))).ok(); } },
-                "trns" => if let Some(t) = d.as_str() { let tc = t.to_string(); let pc = ipx.clone(); tokio::spawn(async move { let r = trans::run(tc).await; let e = r.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$"); pc.send_event(Ev::Js(format!("atr(`{}`)", e))).ok(); }); },
-                "shld" => if let (Some(s), Some(v)) = (d["s"].as_str(), d["v"].as_bool()) { if let Ok(mut g) = ist.write() { match s { "ad" => g.cfg.ad = v, "trk" => g.cfg.trk = v, "ck" => g.cfg.cook = v, _ => {} } } },
+                "shld" => if let (Some(s), Some(v)) = (d["s"].as_str(), d["v"].as_bool()) { if let Ok(mut g) = ist.write() { match s { "ad" => g.cfg.ad = v, "trk" => g.cfg.trk = v, "sink" => g.cfg.sinkhole = v, _ => {} } } },
                 "inc" => { if let Ok(mut g) = ist.write() { g.blocked += 1; ipx.send_event(Ev::Js(format!("uc({})", g.blocked))).ok(); } },
-                "about" => { ipx.send_event(Ev::Js("document.body.insertAdjacentHTML('beforeend',`<div style='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg);border:2px solid var(--c);padding:40px;z-index:9999;box-shadow:0 0 30px var(--c);color:var(--t);font-family:monospace'><h1 style='color:var(--c)'>NEXUS</h1><p style='color:var(--p)'>Premium Rust</p><button class='b' onclick='this.parentNode.remove()'>CLOSE</button></div>`);al(window.CL);".into())).ok(); },
                 _ => {}
             }
         }
     });
 
     let wv = match wb.build() {
-        Ok(w) => Arc::new(Mutex::new(w)),
-        Err(_) => return,
+        Ok(w) => Arc::new(Mutex::new(w)), Err(_) => return,
     };
     let wvc = wv.clone();
 
