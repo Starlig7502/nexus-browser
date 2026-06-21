@@ -2,40 +2,44 @@
 name = "nexus-browser"
 version = "1.0.0"
 edition = "2021"
-authors = ["Elite Rust Systems Developer"]
-description = "Nexus Browser - Premium Rust Edition (Single-File Architecture)"
+authors = ["Elite Rust Systems Engineer"]
+description = "Nexus Browser - Ultra-Optimized 4GB DDR3 Edition"
 
 [dependencies]
-# Windowing & Event Loop (Paired specifically with wry 0.45)
+# Windowing & Webview (Linux WebKit2GTK bindings)
 tao = "0.30"
-
-# Webview Engine
 wry = "0.45"
 
-# Async Runtime (Full features for multi-threading, fs, time, and sync primitives)
-tokio = { version = "1", features = ["full"] }
+# Async Runtime (Strictly limited features to reduce binary size and RAM overhead)
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "fs", "sync", "time", "io-util"] }
 
-# HTTP Client (Explicitly enabling SOCKS for Tor/Proxy, JSON for IPC, and Streams)
-reqwest = { version = "0.12", default-features = true, features = ["json", "socks", "stream"] }
+# HTTP Client (Using rustls instead of native-tls to avoid heavy OpenSSL C-dependencies and memory bloat)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "socks", "json", "stream"] }
+
+# Async Stream Utilities (Required for the 32-thread backpressure chunk streaming)
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # Serialization / Deserialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
 
-# URL Parsing & Encoding (For the Search Router)
+# URL Parsing & Encoding
 url = "2"
 
-# Cryptographically Secure Randomness (For the Password Vault)
-rand = "0.8"
+# Cryptographically Secure Randomness
+rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
 
 # ============================================================================
-# ELITE BUILD OPTIMIZATION PROFILE
-# Run `cargo build --release` to compile the binary with maximum optimization,
-# Link-Time Optimization (LTO), and stripped symbols for minimal binary size.
+# EXTREME 4GB DDR3 COMPILATION & RUNTIME OPTIMIZATION PROFILE
+# ============================================================================
+# This profile guarantees minimal binary size, prevents compiler OOM spikes 
+# during the build process, and strips all debug symbols for production.
 # ============================================================================
 [profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
-strip = true
-panic = "abort"
+opt-level = "z"        # Optimize strictly for binary size (smaller than "s")
+lto = true             # Enable Link-Time Optimization (merges all crates, drops dead code)
+codegen-units = 1      # Single compilation thread for maximum optimization (prevents RAM spikes)
+panic = "abort"        # Remove panic unwinding overhead (saves memory and binary size)
+strip = true           # Strip all debug symbols and metadata from the final binary
+debug = false          # Absolutely no debug info
+incremental = false    # Disable incremental compilation to save disk I/O and RAM cache
