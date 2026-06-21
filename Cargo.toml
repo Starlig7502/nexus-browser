@@ -6,40 +6,21 @@ authors = ["Elite Rust Systems Engineer"]
 description = "Nexus Browser - Ultra-Optimized 4GB DDR3 Edition"
 
 [dependencies]
-# Windowing & Webview (Linux WebKit2GTK bindings)
 tao = "0.30"
 wry = "0.45"
-
-# Async Runtime (Strictly limited features to reduce binary size and RAM overhead)
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "fs", "sync", "time", "io-util"] }
-
-# HTTP Client (Using rustls instead of native-tls to avoid heavy OpenSSL C-dependencies and memory bloat)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "socks", "json", "stream"] }
-
-# Async Stream Utilities (Required for the 32-thread backpressure chunk streaming)
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
-
-# Serialization / Deserialization
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
-
-# URL Parsing & Encoding
 url = "2"
-
-# Cryptographically Secure Randomness
 rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
 
-# ============================================================================
-# EXTREME 4GB DDR3 COMPILATION & RUNTIME OPTIMIZATION PROFILE
-# ============================================================================
-# This profile guarantees minimal binary size, prevents compiler OOM spikes 
-# during the build process, and strips all debug symbols for production.
-# ============================================================================
 [profile.release]
-opt-level = "z"        # Optimize strictly for binary size (smaller than "s")
-lto = true             # Enable Link-Time Optimization (merges all crates, drops dead code)
-codegen-units = 1      # Single compilation thread for maximum optimization (prevents RAM spikes)
-panic = "abort"        # Remove panic unwinding overhead (saves memory and binary size)
-strip = true           # Strip all debug symbols and metadata from the final binary
-debug = false          # Absolutely no debug info
-incremental = false    # Disable incremental compilation to save disk I/O and RAM cache
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+incremental = false
