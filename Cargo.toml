@@ -5,6 +5,10 @@ edition = "2021"
 authors = ["Elite Rust Systems Engineer"]
 description = "Nexus Browser - Ultra-Optimized 4GB DDR3 Edition"
 
+[[bin]]
+name = "nexus-browser"
+path = "main.rs"
+
 [dependencies]
 tao = "0.30"
 wry = "0.45"
@@ -14,7 +18,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 url = "2"
-rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
+rand = { version = "0.8", default-features = true }
 
 [profile.release]
 opt-level = "z"
