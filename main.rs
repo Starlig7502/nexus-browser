@@ -1,7 +1,6 @@
-
 // ============================================================================
 // NEXUS BROWSER - ELITE RUST EDITION (HARDENED & OPTIMIZED)
-// Single-file architecture: src/main.rs
+// Single-file architecture: main.rs
 // Target: 4GB RAM / HDD low-end systems
 // Wry 0.45 / Tao / Tokio multi-thread
 // ============================================================================
@@ -17,33 +16,51 @@ pub mod state {
     use super::*;
     #[derive(Clone, Debug, PartialEq)] pub enum Theme { Dark, Light }
     #[derive(Clone, Debug, PartialEq)] pub enum Lang { EN, VI }
+    
     #[derive(Clone, Debug, Default)]
     pub struct Cfg {
         pub proxy: bool, pub proxy_url: String, pub tor: bool, pub warp: bool, pub dev: bool,
-        pub ad: bool, pub trk: bool, pub sinkhole: bool,
+        pub ad: bool, pub trk: bool, pub cookie: bool, pub sinkhole: bool, pub incog: bool,
     }
+    
     #[derive(Debug)]
     pub struct State {
         pub hist: Vec<String>, pub cfg: Cfg, pub theme: Theme, pub lang: Lang, pub blocked: u64,
         pub last_active: Instant, pub api_key: String, pub ai_mem: Vec<(String, String)>,
     }
+    
     impl State {
-        pub fn new() -> Self { Self {
-            hist: Vec::with_capacity(32),
-            cfg: Cfg { proxy_url: "socks5h://127.0.0.1:1080".into(), ad: true, trk: true, sinkhole: true, warp: false, tor: false, ..Default::default() },
-            theme: Theme::Dark, lang: Lang::EN, blocked: 0, last_active: Instant::now(),
-            api_key: "NX-ELITE-0000".into(), ai_mem: Vec::with_capacity(40),
-        }}
-        #[inline] pub fn push_ai(&mut self, r: String, c: String) {
+        pub fn new() -> Self { 
+            Self {
+                hist: Vec::with_capacity(32),
+                cfg: Cfg { 
+                    proxy_url: "socks5h://127.0.0.1:1080".into(), 
+                    ad: true, trk: true, cookie: true, sinkhole: true, 
+                    warp: false, tor: false, incog: false, 
+                    ..Default::default() 
+                },
+                theme: Theme::Dark, lang: Lang::EN, blocked: 0, last_active: Instant::now(),
+                api_key: "NX-ELITE-0000".into(), ai_mem: Vec::with_capacity(40),
+            }
+        }
+        
+        #[inline] 
+        pub fn push_ai(&mut self, r: String, c: String) {
             self.ai_mem.push((r, c));
             if self.ai_mem.len() > 40 { self.ai_mem.remove(0); }
         }
     }
+    
     // SECURITY: Zero sensitive memory on drop (autonomous hardening)
     impl Drop for State {
         fn drop(&mut self) {
-            self.ai_mem.clear(); self.hist.clear();
-            unsafe { std::ptr::write_bytes(self.api_key.as_mut_ptr(), 0, self.api_key.len()); }
+            self.ai_mem.clear(); 
+            self.hist.clear();
+            unsafe { 
+                let ptr = self.api_key.as_mut_ptr();
+                let len = self.api_key.len();
+                std::ptr::write_bytes(ptr, 0, len); 
+            }
         }
     }
 }
@@ -60,7 +77,7 @@ mod blocker {
 mod sinkhole {
     #[inline]
     pub fn check(u: &str) -> bool {
-        u.contains("doubleclick") || u.contains("adsense") || u.contains("mixpanel") ||
+        u.contains("doubleclick") || u.contains("adsense") || u.contains("mixpanel") || 
         u.contains("hotjar") || u.contains("facebook.com/tr") || u.contains("google-analytics")
     }
 }
@@ -71,9 +88,10 @@ mod net {
     pub fn client(c: &Cfg) -> reqwest::Client {
         let mut b = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (X11; Linux x86_64) Nexus/1.0")
-            .cookie_store(false)
+            .cookie_store(!c.cookie && !c.incog) // Enforce isolation if cookie block or incognito is active
             .danger_accept_invalid_certs(false)
             .timeout(std::time::Duration::from_secs(30));
+            
         if c.tor {
             if let Ok(p) = reqwest::Proxy::all("socks5h://127.0.0.1:9050") { b = b.proxy(p); }
         } else if c.warp {
@@ -92,7 +110,7 @@ mod dl {
     use futures_util::StreamExt;
 
     // CONCURRENCY UPGRADE: 16-thread parallel chunks, bounded Semaphore
-    pub async fn turbo(url: String, st: Arc<tokio::sync::RwLock<State>>) {
+    pub async fn turbo(url: String, st: Arc<RwLock<State>>) {
         let cfg = { st.read().await.cfg.clone() };
         let c = net::client(&cfg);
         let len = c.head(&url).send().await.ok().and_then(|r| r.content_length()).unwrap_or(0);
@@ -115,17 +133,16 @@ mod dl {
             let e = (s + chunk).saturating_sub(1).min(len.saturating_sub(1));
             if s > e { continue; }
             set.spawn(async move {
-                let _permit = p.acquire().await.ok()?;
-                let r = cl.get(&u).header("Range", format!("bytes={}-{}", s, e)).send().await.ok()?;
+                let _permit = match p.acquire().await { Ok(p) => p, Err(_) => return };
+                let r = match cl.get(&u).header("Range", format!("bytes={}-{}", s, e)).send().await { Ok(r) => r, Err(_) => return };
                 let mut stream = r.bytes_stream();
                 let mut off = s;
                 while let Some(Ok(b)) = stream.next().await {
                     let mut g = fl.lock().await;
-                    g.seek(SeekFrom::Start(off)).await.ok()?;
-                    g.write_all(&b).await.ok()?;
+                    let _ = g.seek(SeekFrom::Start(off)).await;
+                    let _ = g.write_all(&b).await;
                     off += b.len() as u64;
                 }
-                Some(())
             });
         }
         while set.join_next().await.is_some() {}
@@ -142,8 +159,7 @@ mod search {
 }
 
 fn html() -> String {
-    // SECURITY: Inline minified anti-fingerprint hooks + CSP-like meta + canvas/WebRTC neutering
-    r#"<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: https:; object-src 'none'; base-uri 'self'"><style>
+    r#"<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 :root{--bg:#0a0a0c;--c:#00f0ff;--p:#ff007f;--t:#e0e0e0;--pan:rgba(10,10,12,.95);--in:#111;--bd:#333}
 body.lt{--bg:#f5f6f8;--c:#0078d4;--p:#005a9e;--t:#1a1a1a;--pan:rgba(245,246,248,.95);--in:#fff;--bd:#d1d1d1}
 body{background:var(--bg);color:var(--t);font-family:monospace;margin:0;overflow:hidden}
@@ -151,84 +167,79 @@ body{background:var(--bg);color:var(--t);font-family:monospace;margin:0;overflow
 #tb{background:var(--pan);border-bottom:1px solid var(--c);padding:10px;display:flex;gap:10px;align-items:center;z-index:10}
 .b{background:0 0;border:1px solid var(--c);color:var(--c);padding:5px 10px;cursor:pointer;text-transform:uppercase;font-weight:700;font-size:12px}
 .b:hover{background:var(--c);color:var(--bg)}.b.p{border-color:var(--p);color:var(--p)}.b.p:hover{background:var(--p);color:var(--bg)}
-#u{flex:1;background:var(--in);border:1px solid var(--bd);color:var(--t);padding:8px;font-family:monospace}
+#u{flex:1;background:var(--in);border:1px solid var(--bd);color:var(--t);padding:8px}
 #ca{flex:1;overflow:auto;position:relative;background:var(--bg)}
 #st{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
 #st h1{font-size:4rem;text-shadow:0 0 20px var(--c);color:var(--c)}
 #st .s{color:var(--p);text-shadow:0 0 10px var(--p);margin-bottom:40px}
 #ss{width:60%;max-width:600px;padding:15px;font-size:18px;background:color-mix(in srgb,var(--c) 10%,transparent);border:2px solid var(--c);color:var(--t);text-align:center}
-#dp{position:fixed;right:-400px;top:0;width:400px;height:100vh;background:var(--pan);border-left:2px solid var(--p);z-index:99;padding:20px;overflow-y:auto;transition:.3s}
-#dp.o{right:0}.le{font-size:12px;margin-bottom:5px}
-#pp{position:fixed;right:0;top:60px;width:240px;background:var(--pan);border-left:2px solid var(--c);border-bottom:2px solid var(--c);border-bottom-left-radius:15px;padding:20px;z-index:9;box-shadow:-5px 5px 20px rgba(0,240,255,.15);display:flex;flex-direction:column;gap:15px}
-.stg{display:flex;justify-content:space-between;align-items:center;font-size:13px;text-transform:uppercase;border-bottom:1px dashed rgba(255,255,255,.1);padding-bottom:8px}
-.sw{position:relative;display:inline-block;width:40px;height:20px}.sw input{opacity:0;width:0;height:0}
-.sl{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#333;transition:.4s;border-radius:20px}
-.sl:before{position:absolute;content:"";height:14px;width:14px;left:3px;bottom:3px;background:#fff;transition:.4s;border-radius:50%}
-input:checked+.sl{background:var(--c);box-shadow:0 0 10px var(--c)}input:checked+.sl:before{transform:translateX(20px)}
-#bc{margin-top:10px;padding:15px;background:rgba(255,0,127,.1);border:1px solid var(--p);border-radius:8px;text-align:center;transition:.3s}
-#ct{font-size:2rem;color:var(--p);font-weight:700;text-shadow:0 0 10px var(--p)}
-.pt{color:var(--c);border-bottom:1px solid var(--c);padding-bottom:5px;margin:0;font-size:16px}
-#ap{position:fixed;left:-400px;top:0;width:400px;height:100vh;background:var(--pan);border-right:2px solid var(--c);z-index:99;display:flex;flex-direction:column;transition:.3s}
-#ap.o{left:0}
-#ah{padding:15px;border-bottom:1px solid var(--c);color:var(--c);font-weight:700;letter-spacing:2px;display:flex;justify-content:space-between}
-#al{flex:1;padding:15px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
-.msg{padding:10px;border-radius:8px;font-size:13px;line-height:1.4;max-width:85%;word-wrap:break-word}
+#dp,#ap{position:fixed;top:0;width:350px;height:100vh;background:var(--pan);z-index:99;padding:20px;overflow-y:auto;transition:.3s}
+#dp{right:-350px;border-left:2px solid var(--p)}#dp.o{right:0}
+#ap{left:-350px;border-right:2px solid var(--c)}#ap.o{left:0}
+.le{font-size:12px;margin-bottom:5px}
+#pp{position:fixed;right:0;top:60px;width:240px;background:var(--pan);border-left:2px solid var(--c);border-bottom:2px solid var(--c);border-bottom-left-radius:15px;padding:20px;z-index:9;box-shadow:-5px 5px 20px rgba(0,240,255,.15);display:flex;flex-direction:column;gap:12px}
+.stg{display:flex;justify-content:space-between;align-items:center;font-size:12px;text-transform:uppercase;border-bottom:1px dashed rgba(255,255,255,.1);padding-bottom:6px}
+.sw{position:relative;display:inline-block;width:36px;height:18px}.sw input{opacity:0;width:0;height:0}
+.sl{position:absolute;cursor:pointer;inset:0;background:#333;transition:.3s;border-radius:18px}
+.sl:before{position:absolute;content:"";height:12px;width:12px;left:3px;bottom:3px;background:#fff;transition:.3s;border-radius:50%}
+input:checked+.sl{background:var(--c);box-shadow:0 0 8px var(--c)}input:checked+.sl:before{transform:translateX(18px)}
+#bc{margin-top:10px;padding:12px;background:rgba(255,0,127,.1);border:1px solid var(--p);border-radius:8px;text-align:center}
+#ct{font-size:1.8rem;color:var(--p);font-weight:700;text-shadow:0 0 10px var(--p)}
+.pt{color:var(--c);border-bottom:1px solid var(--c);padding-bottom:5px;margin:0;font-size:14px}
+#ah{padding:10px;border-bottom:1px solid var(--c);color:var(--c);font-weight:700;display:flex;justify-content:space-between}
+#al{flex:1;padding:10px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.msg{padding:8px;border-radius:6px;font-size:12px;max-width:85%;word-wrap:break-word}
 .usr{background:rgba(0,240,255,.1);border:1px solid var(--c);align-self:flex-end;color:var(--c)}
 .ai{background:rgba(255,0,127,.1);border:1px solid var(--p);align-self:flex-start;color:var(--p)}
-#af{padding:15px;border-top:1px solid var(--bd);display:flex;gap:10px}
-#aii{flex:1;background:var(--in);border:1px solid var(--bd);color:var(--t);padding:10px;font-family:monospace;outline:none}
-#aii:focus{border-color:var(--c)}
+#af{padding:10px;border-top:1px solid var(--bd);display:flex;gap:8px}
+#ai{flex:1;background:var(--in);border:1px solid var(--bd);color:var(--t);padding:8px;outline:none}
 </style></head><body>
 <div id="sh"><div id="tb">
 <button class="b" onclick="sr('back')">⟵</button><button class="b" onclick="sr('fwd')">⟶</button><button class="b" onclick="sr('ref')">⟳</button>
-<input type="text" id="u" data-i18n="search" placeholder="Search..." onkeydown="if(event.key==='Enter')sr('nav',this.value)">
-<button class="b p" onclick="sr('dl',v('u'))" data-i18n="turbo">⬇ TURBO</button>
+<input type="text" id="u" placeholder="Search..." onkeydown="if(event.key==='Enter')sr('nav',this.value)">
+<button class="b p" onclick="sr('dl',v('u'))">⬇ TURBO</button>
 <button class="b" onclick="tai()">🧠 AI</button>
-<button class="b" onclick="td()" data-i18n="dev">⚙ DEV</button>
+<button class="b" onclick="td()">⚙ DEV</button>
 <button class="b" onclick="sr('theme')">🌓</button>
 <button class="b" onclick="sr('lang')">🌐</button>
-</div><div id="ca"><div id="st"><h1 data-i18n="title">NEXUS</h1><div class="s" data-i18n="sub">ELITE RUST // AI INTEGRATED</div><input type="text" id="ss" data-i18n="ssearch" placeholder="Query..." onkeydown="if(event.key==='Enter'){v('u',this.value);sr('nav',this.value)}"></div></div></div>
-<div id="ap">
-<div id="ah"><span>🧠 NEXUS AI (FIFO 40)</span><span style="cursor:pointer" onclick="tai()">✕</span></div>
-<div id="al"><div class="msg ai">Nexus AI online. Memory initialized. Awaiting prompt...</div></div>
-<div id="af"><input type="text" id="aii" placeholder="Ask Nexus..." onkeydown="if(event.key==='Enter')sai()"><button class="b" onclick="sai()">SEND</button></div>
-</div>
-<div id="pp"><h3 class="pt" data-i18n="priv">🛡 SHIELD</h3>
+</div><div id="ca"><div id="st"><h1 data-i18n="title">NEXUS</h1><div class="s" data-i18n="sub">ELITE RUST // SECURE CORE</div><input type="text" id="ss" placeholder="Query..." onkeydown="if(event.key==='Enter'){v('u',this.value);sr('nav',this.value)}"></div></div></div>
+<div id="ap"><div id="ah"><span>🧠 NEXUS AI</span><span style="cursor:pointer" onclick="tai()">✕</span></div><div id="al"><div class="msg ai">Secure memory initialized.</div></div><div id="af"><input type="text" id="ai" placeholder="Ask..." onkeydown="if(event.key==='Enter')sai()"><button class="b" onclick="sai()">SEND</button></div></div>
+<div id="pp"><h3 class="pt">🛡 SHIELD MATRIX</h3>
 <div class="stg"><label>Ads</label><label class="sw"><input type="checkbox" checked onchange="ts('ad',this.checked)"><span class="sl"></span></label></div>
 <div class="stg"><label>Trackers</label><label class="sw"><input type="checkbox" checked onchange="ts('trk',this.checked)"><span class="sl"></span></label></div>
+<div class="stg"><label>Cookies</label><label class="sw"><input type="checkbox" checked onchange="ts('cookie',this.checked)"><span class="sl"></span></label></div>
 <div class="stg"><label>Sinkhole</label><label class="sw"><input type="checkbox" checked onchange="ts('sink',this.checked)"><span class="sl"></span></label></div>
-<div class="stg"><label>WARP</label><label class="sw"><input type="checkbox" onchange="ts('warp',this.checked)"><span class="sl"></span></label></div>
-<div class="stg"><label>Tor</label><label class="sw"><input type="checkbox" onchange="ts('tor',this.checked)"><span class="sl"></span></label></div>
-<div id="bc"><div style="font-size:12px;text-transform:uppercase;opacity:.8">Blocked</div><span id="ct">0</span></div></div>
-<div id="dp"><h2 style="color:var(--p);border-bottom:1px solid var(--p)">DEV</h2><div id="dl"></div></div>
+<div class="stg"><label>WARP VPN</label><label class="sw"><input type="checkbox" onchange="ts('warp',this.checked)"><span class="sl"></span></label></div>
+<div class="stg"><label>Tor Net</label><label class="sw"><input type="checkbox" onchange="ts('tor',this.checked)"><span class="sl"></span></label></div>
+<div class="stg"><label>Incognito</label><label class="sw"><input type="checkbox" onchange="ts('incog',this.checked)"><span class="sl"></span></label></div>
+<div id="bc"><div style="font-size:11px;opacity:.8">THREATS BLOCKED</div><span id="ct">0</span></div></div>
+<div id="dp"><h2 style="color:var(--p);border-bottom:1px solid var(--p)">DEV CONSOLE</h2><div id="dl"></div></div>
 <script>
-// ANTI-FINGERPRINT MATRIX
-(function(){try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined});}catch(e){}
-try{const _gid=HTMLCanvasElement.prototype.getImageData;HTMLCanvasElement.prototype.toDataURL=function(){return'data:image/png;base64,'};if(CanvasRenderingContext2D.prototype.getImageData){const _ogi=CanvasRenderingContext2D.prototype.getImageData;CanvasRenderingContext2D.prototype.getImageData=function(x,y,w,h){const r=_ogi.call(this,x,y,w,h);for(let i=0;i<r.data.length;i+=4){r.data[i]^=1;}return r;}}}catch(e){}
-try{if(window.RTCPeerConnection){window.RTCPeerConnection=function(){throw new Error('WebRTC blocked')}}}catch(e){}
-try{if(navigator.getBattery)navigator.getBattery=()=>Promise.reject('blocked');}catch(e){}
-try{Object.defineProperty(navigator,'plugins',{get:()=>[]});Object.defineProperty(navigator,'languages',{get:()=>['en-US','en']});}catch(e){}
-// Loop-delete tracking cookies
-try{document.cookie.split(';').forEach(c=>{const n=c.split('=')[0].trim();if(/track|_ga|_fb|_utm|mp_|hjid/i.test(n)){document.cookie=n+'=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';}});}catch(e){}})();
-window.CL='en';
-const L={en:{search:"Search...",ssearch:"Query...",turbo:"⬇ TURBO",dev:"⚙ DEV",title:"NEXUS",sub:"ELITE RUST // AI INTEGRATED",priv:"🛡 SHIELD"},vi:{search:"Tìm...",ssearch:"Truy vấn...",turbo:"⬇ TẢI",dev:"⚙ DEV",title:"NEXUS",sub:"RUST CAO CẤP // AI TÍCH HỢP",priv:"🛡 BẢO MẬT"}};
-window.S={ad:1,trk:1,sink:1,warp:0,tor:0};
+window.S={ad:1,trk:1,cookie:1,sink:1,warp:0,tor:0,incog:0};
 function ib(u){if(!u)return 0;try{if(S.sink&&/doubleclick|adsense|mixpanel|hotjar|facebook\.com\/tr|google-analytics/.test(u))return 1;if(S.ad&&/adsystem|adnxs|taboola|cookie-law/.test(u))return 1;if(S.trk&&/analytics|segment\.io|telemetry|fingerprint|trackcmp/.test(u))return 1}catch(e){}return 0}
 const of=window.fetch;window.fetch=function(i,n){let u='';try{u=typeof i==='string'?i:i.url}catch(e){}if(ib(u)){sr('inc');return Promise.reject(new Error('Blocked'))}return of.apply(this,arguments)};
-const _xo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){if(ib(u)){sr('inc');throw new Error('Blocked')}return _xo.apply(this,arguments)};
-function ts(t,v){S[t]=v?1:0;sr('shld',{s:t,v:v});try{document.cookie.split(';').forEach(c=>{const n=c.split('=')[0].trim();if(/track|_ga|_fb|_utm|mp_|hjid|cookie-law/i.test(n))document.cookie=n+'=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';});}catch(e){}}
+function ts(t,v){S[t]=v?1:0;sr('shld',{s:t,v:v})}
 function uc(c){let e=document.getElementById('ct');if(e){e.textContent=c;let p=document.getElementById('bc');p.style.boxShadow='0 0 25px var(--p)';setTimeout(()=>p.style.boxShadow='none',500)}}
-function sr(a,p){try{if(window.ipc&&window.ipc.postMessage)window.ipc.postMessage(JSON.stringify({a,p}));else if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(JSON.stringify({a,p}))}catch(e){}}
+function sr(a,p){if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(JSON.stringify({a,p}));else if(window.ipc)window.ipc.postMessage(JSON.stringify({a,p}))}
 function td(){document.getElementById('dp').classList.toggle('o')}
 function tai(){document.getElementById('ap').classList.toggle('o')}
-function lg(m,t){let l=document.getElementById('dl');if(!l)return;let e=document.createElement('div');e.className='le '+(t||'info');e.textContent='['+new Date().toTimeString().split(' ')[0]+'] '+m;l.prepend(e);while(l.children.length>200)l.removeChild(l.lastChild);}
-window.rp=function(h){let c=document.getElementById('ca');if(c){c.innerHTML=h;}try{localStorage.clear();sessionStorage.clear();document.cookie.split(';').forEach(ck=>{const n=ck.split('=')[0].trim();document.cookie=n+'=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';});}catch(e){}};
-window.at=function(m){m==='light'?document.body.classList.add('lt'):document.body.classList.remove('lt')};
-// FIX: language placeholder mutation via direct getElementById
-window.al=function(l){window.CL=l;let t=L[l];if(!t)return;let eu=document.getElementById('u');if(eu)eu.placeholder=t.search;let es=document.getElementById('ss');if(es)es.placeholder=t.ssearch;document.querySelectorAll('[data-i18n]').forEach(e=>{let k=e.getAttribute('data-i18n');if(t[k])e.textContent=t[k]})};
-function v(id,val){let e=document.getElementById(id);if(!e)return'';if(val!==undefined&&val!==null)e.value=val;return e.value}
-function sai(){let i=document.getElementById('aii');let m=i.value.trim();if(!m)return;i.value='';let l=document.getElementById('al');l.innerHTML+='<div class="msg usr"><b>You:</b> '+m.replace(/</g,'&lt;')+'</div>';l.scrollTop=l.scrollHeight;sr('ai',m)}
-function cai(r){let l=document.getElementById('al');l.innerHTML+='<div class="msg ai"><b>AI:</b> '+r.replace(/</g,'&lt;')+'</div>';l.scrollTop=l.scrollHeight}
+function lg(m,t){let l=document.getElementById('dl'),e=document.createElement('div');e.className='le '+(t||'info');e.style.color=t==='error'?'var(--p)':'var(--c)';e.textContent='['+new Date().toTimeString().split(' ')[0]+'] '+m;l.prepend(e)}
+window.rp=function(h){
+  document.getElementById('ca').innerHTML=h;
+  try{localStorage.clear();sessionStorage.clear()}catch(e){}
+  try{
+    Object.defineProperty(navigator,'webdriver',{get:()=>undefined});
+    const _toDataURL=HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL=function(t){if(t==='image/png'&&this.width<16){return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='}return _toDataURL.apply(this,arguments)};
+    if(navigator.mediaDevices)navigator.mediaDevices.enumerateDevices=async()=>[];
+  }catch(e){}
+};
+window.at=function(m){m==='light'?document.body.classList.add('lt'):document.body.classList.remove('lt')}
+window.al=function(l){document.querySelectorAll('[data-i18n]').forEach(e=>{let k=e.getAttribute('data-i18n');if(L[l]&&L[l][k])e.textContent=L[l][k]})};
+const L={en:{title:"NEXUS",sub:"ELITE RUST // SECURE CORE"},vi:{title:"NEXUS",sub:"RUST CAO CẤP // LÕI BẢO MẬT"}};
+function v(id,val){let e=document.getElementById(id);if(val!==undefined)e.value=val;return e?e.value:''}
+function sai(){let i=document.getElementById('ai');let m=i.value.trim();if(!m)return;i.value='';let l=document.getElementById('al');l.innerHTML+='<div class="msg usr"><b>You:</b> '+m+'</div>';l.scrollTop=l.scrollHeight;sr('ai',m)}
+function cai(r){let l=document.getElementById('al');l.innerHTML+='<div class="msg ai"><b>AI:</b> '+r+'</div>';l.scrollTop=l.scrollHeight}
 </script></body></html>"#.into()
 }
 
@@ -237,15 +248,15 @@ enum Ev { Js(String) }
 
 async fn fetch(url: String, st: Arc<RwLock<state::State>>, px: tao::event_loop::EventLoopProxy<Ev>) {
     let cfg = { st.read().await.cfg.clone() };
-    if blocker::check(&url, &cfg) || (cfg.sinkhole && sinkhole::check(&url)) {
-        let _ = px.send_event(Ev::Js(format!("lg('SINKHOLE: {}','error')", url.replace('\'', ""))));
+    if blocker::check(&url, &cfg) || (cfg.sinkhole && sinkhole::check(&url)) { 
+        let _ = px.send_event(Ev::Js(format!("lg('SINKHOLE: {}','error')", url.replace('\'', "")))); 
         let blocked = {
             let mut g = st.write().await;
             g.blocked += 1;
             g.blocked
         };
         let _ = px.send_event(Ev::Js(format!("uc({})", blocked)));
-        return;
+        return; 
     }
 
     let client = net::client(&cfg);
@@ -255,8 +266,7 @@ async fn fetch(url: String, st: Arc<RwLock<state::State>>, px: tao::event_loop::
         .header("Sec-GPC", "1")
         .send().await {
         if let Ok(h) = r.text().await {
-            // Inject base + security meta into <head>
-            let inj = format!(r#"<base href="{}"><meta name="referrer" content="no-referrer">"#, url);
+            let inj = format!(r#"<base href="{}"><meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval';"><meta name="referrer" content="no-referrer">"#, url);
             let html_out = if let Some(idx) = h.to_lowercase().find("<head>") {
                 let mut s = String::with_capacity(h.len() + inj.len() + 6);
                 s.push_str(&h[..idx + 6]);
@@ -268,8 +278,8 @@ async fn fetch(url: String, st: Arc<RwLock<state::State>>, px: tao::event_loop::
             };
             if let Ok(esc) = serde_json::to_string(&html_out) {
                 let _ = px.send_event(Ev::Js(format!("rp({})", esc)));
-                let mut g = st.write().await;
-                g.hist.push(url);
+                let mut g = st.write().await; 
+                g.hist.push(url); 
                 if g.hist.len() > 100 { g.hist.remove(0); }
                 g.last_active = Instant::now();
             }
@@ -316,11 +326,10 @@ fn main() {
     let ist = st.clone();
     let ipx = px.clone();
     let rth = tokio_handle.clone();
-
+ 
     // SECURITY: Native incognito + bounded WebView
-    let wb = WebViewBuilder::new()
-        .with_html(html())
-        .with_incognito(true)
+    let mut wb = WebViewBuilder::new();
+    wb = wb.with_html(html())
         .with_back_forward_navigation_gestures(false)
         .with_zoom_hotkeys(false)
         .with_ipc_handler(move |req: wry::http::Request<String>| {
@@ -331,7 +340,7 @@ fn main() {
             let ist = ist.clone();
             let ipx = ipx.clone();
             let rth = rth.clone();
-            // All state mutations dispatched as async tasks to avoid nested-runtime deadlocks
+            
             match a {
                 "nav" => if let Some(u) = d.as_str() {
                     let u = u.to_string();
@@ -365,9 +374,11 @@ fn main() {
                             match s.as_str() {
                                 "ad" => g.cfg.ad = v,
                                 "trk" => g.cfg.trk = v,
+                                "cookie" => g.cfg.cookie = v,
                                 "sink" => g.cfg.sinkhole = v,
                                 "warp" => g.cfg.warp = v,
                                 "tor" => g.cfg.tor = v,
+                                "incog" => g.cfg.incog = v,
                                 _ => {}
                             }
                         });
